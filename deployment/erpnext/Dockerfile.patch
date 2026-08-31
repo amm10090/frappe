@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.7
+# Build a derived Frappe image from the production image. The patch directory is
+# intentionally the final mutable layer: dependency layers remain in BASE_IMAGE.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+USER root
+COPY --chown=frappe:frappe patch/ /home/frappe/frappe-bench/apps/frappe/
+
+USER frappe
+WORKDIR /home/frappe/frappe-bench
+
+# Doctype JS is served through Desk metadata and does not require an asset build.
+# Bundle changes opt in by setting BUILD_ASSETS=1.
+ARG BUILD_ASSETS=0
+RUN test "${BUILD_ASSETS}" = "0" || test "${BUILD_ASSETS}" = "1" \
+	&& if [ "${BUILD_ASSETS}" = "1" ]; then bench build --app frappe; fi
