@@ -17,7 +17,6 @@ CURL_TIMEOUT=${CURL_TIMEOUT:-20}
 SOURCE_REF=${SOURCE_REF:-unknown}
 PATCH_DIR="$RELEASE_DIR/patch"
 DOCKERFILE="$RELEASE_DIR/Dockerfile.patch"
-CACHE_DIR="$GITOPS_DIR/.build-cache/frappe"
 
 fail() {
 	echo "ERROR: $*" >&2
@@ -122,21 +121,12 @@ docker compose --file "$STAGING_COMPOSE" exec -T backend \
 	|| fail "Persistent staging site $SITE is absent"
 
 log "Building $new_image from $base_image (BUILD_ASSETS=$BUILD_ASSETS)."
-cache_tmp="$CACHE_DIR.$RELEASE_TAG.tmp"
-rm -rf "$cache_tmp"
-cache_from=()
-if [[ -d "$CACHE_DIR" ]]; then
-	cache_from=(--cache-from "type=local,src=$CACHE_DIR")
-fi
-
+# The base image already contains all application dependencies. BuildKit keeps
+    # its layer metadata on the deployment host, so no multi-gigabyte cache export is needed.
 docker buildx build --load --pull=false --progress=plain \
-	"${cache_from[@]}" \
-	--cache-to "type=local,dest=$cache_tmp,mode=max" \
 	--build-arg "BASE_IMAGE=$base_image" \
 	--build-arg "BUILD_ASSETS=$BUILD_ASSETS" \
 	--file "$DOCKERFILE" --tag "$new_image" "$RELEASE_DIR"
-rm -rf "$CACHE_DIR"
-mv "$cache_tmp" "$CACHE_DIR"
 new_image_id=$(docker image inspect "$new_image" --format '{{.Id}}')
 printf 'new_image_id=%s\n' "$new_image_id" >> "$RELEASE_DIR/deployment-record.txt"
 
