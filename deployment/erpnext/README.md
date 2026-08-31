@@ -1,17 +1,18 @@
-# Frappe 增量覆盖部署
+# Frappe 增量覆盖部署（本地手动流程）
 
 此流程以当前生产镜像为基础，只叠加本次改动，生成一个新的不可变派生镜像。它只适用于**不含迁移、Schema 变更或业务数据写入**的 Frappe 代码改动。
+
+> 本项目不使用 GitHub CI/CD：发布由本地操作者通过 Netcatty 连接生产服务器执行。
 
 ## 文件与运行位置
 
 | 位置 | 内容 | 是否常驻 |
 | --- | --- | --- |
-| 本地仓库 / GitHub | 本目录的脚本、Dockerfile 和 GitHub Actions 工作流源码。 | 是，受 Git 管理。 |
-| GitHub `production` Environment | SSH 私钥、固定主机指纹、主机地址等环境级 Secrets。 | 是，由 GitHub 保管。 |
+| 本地仓库 | 本目录的脚本、Dockerfile 和发布源码。 | 是，受 Git 管理。 |
 | 生产服务器 `/home/ubuntu/gitops` | 生产与预发 Compose 文件、镜像、常驻预发服务及其站点。 | 是。 |
-| 生产服务器 `/home/ubuntu/gitops/releases/<tag>/` | 每次 CI 上传的本次 overlay、Dockerfile、`deploy.sh`、回滚 Compose 副本和部署记录。 | 按发布保留，可审计与回滚。 |
+| 生产服务器 `/home/ubuntu/gitops/releases/<tag>/` | 每次手动上传的 overlay、Dockerfile、`deploy.sh`、回滚 Compose 副本和部署记录。 | 按发布保留，可审计与回滚。 |
 
-因此，`deployment/erpnext/` 下的文档与脚本**不常驻部署在生产服务器**；GitHub Actions 运行时才会将所需文件上传到对应的 release 目录并执行。
+因此，`deployment/erpnext/` 下的脚本和文档**不常驻部署在生产服务器**；每次发布时才将所需文件上传到对应的 release 目录并执行。
 
 ## 优化内容
 
@@ -22,27 +23,37 @@
 - **轻量冒烟测试：** 在预发和生产阶段分别验证 Compose 配置、`--wait` 服务启动、Frappe 元数据缓存清理、`/api/method/ping` 与 `/desk` HTTP 响应。
 - **自动回滚：** 预发失败仅恢复预发 Compose；生产失败则恢复发布前复制的生产 Compose 文件并重新启动旧镜像。每次发布在 `deployment-record.txt` 中记录旧/新镜像 ID。
 
-## GitHub Actions 配置
+## 手动发布步骤
 
-手动工作流位于 [`.github/workflows/erpnext-production-deploy.yml`](../../.github/workflows/erpnext-production-deploy.yml)。先将包含该文件的 PR 合并到默认分支，然后从 `release/erpnext-production` 分支触发部署。
+1. 确认本地改动已经过最小相关验证，且 `base_ref` 与当前生产应用代码基线一致。
+2. 在本地执行：
 
-GitHub `production` Environment 应启用审核，并配置以下 Environment Secrets：
+   ```bash
+   cd apps/frappe
+   bash deployment/erpnext/prepare-patch.sh <base_ref> HEAD release
+   cp deployment/erpnext/Dockerfile.patch deployment/erpnext/deploy.sh release/
+   chmod +x release/deploy.sh
+   ```
 
-| Secret | 用途 |
-| --- | --- |
-| `DEPLOY_HOST` | 部署服务器主机名或 IP。 |
-| `DEPLOY_USER` | 受限的 SSH 部署用户。 |
-| `DEPLOY_SSH_PORT` | SSH 端口；留空时为 `22`。 |
-| `DEPLOY_SSH_PRIVATE_KEY` | 专用部署密钥，不能使用个人私钥。 |
-| `DEPLOY_KNOWN_HOSTS` | 固定的服务器 `known_hosts` 条目；CI 中不得使用 `ssh-keyscan`。 |
+3. 通过 Netcatty SFTP 将 `release/` 上传到生产服务器：
 
-部署用户需要 Docker Compose 权限且不得依赖交互式密码输入。工作流会将 release overlay 上传至 `/home/ubuntu/gitops/releases/<tag>/`，然后调用其中的 `deploy.sh`。
+   ```text
+   /home/ubuntu/gitops/releases/<唯一标签>/
+   ```
 
-触发工作流时：
+4. 通过 Netcatty 终端在生产服务器执行：
 
-1. `base_ref` 填写当前生产应用代码所对应的 Frappe 提交；它必须是待部署提交的祖先。
-2. 可选填写不可变 `release_tag`；不填写时由提交 SHA 与工作流运行编号生成。
-3. 审核 GitHub Environment 部署请求，并查看预发、生产提升和回滚日志。
+   ```bash
+   RELEASE_DIR=/home/ubuntu/gitops/releases/<唯一标签> \
+   RELEASE_TAG=<唯一镜像标签> \
+   BUILD_ASSETS=$(cat /home/ubuntu/gitops/releases/<唯一标签>/build-assets) \
+   SOURCE_REF=<本地提交SHA> \
+   bash /home/ubuntu/gitops/releases/<唯一标签>/deploy.sh
+   ```
+
+5. 观察预发与生产日志；脚本在预发失败时不会更新生产，在生产检查失败时会恢复已保存的 Compose 文件和旧镜像。
+
+`prepare-patch.sh` 会拒绝删除、重命名或复制文件；遇到这些变更时不要绕过检查，应使用完整镜像发布流程。
 
 ## 当前平台限制
 
