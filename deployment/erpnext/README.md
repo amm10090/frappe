@@ -12,10 +12,7 @@ not run migrations or modify business data.
 - **No build for Desk doctype JS:** Frappe loads doctype JavaScript through
   Desk metadata. Changes such as `frappe/**/doctype/**/*.js` use
   `BUILD_ASSETS=0`; the image only adds the source overlay.
-- **Cached bundle builds:** when a changed path needs a bundle
-  (`frappe/public/**` or `esbuild/**`), `BUILD_ASSETS=1` runs
-  `bench build --app frappe`. BuildKit's persistent local cache at
-  `/home/ubuntu/gitops/.build-cache/frappe` is reused across releases.
+- **Dependency and layer reuse:** the immutable base image already contains dependencies, and the deployment host's persistent Docker/BuildKit layer cache is reused. Only changes below `frappe/public/**` or `esbuild/**` set `BUILD_ASSETS=1` and run `bench build --app frappe`.
 - **Persistent staging:** the deployment host must keep the staging Compose
   project and its `erp.amoze.net` site running. Releases assert that it exists;
   they never create or initialize a site.
