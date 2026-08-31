@@ -94,10 +94,10 @@ jobs:
           DEPLOY_SSH_PORT=${DEPLOY_SSH_PORT:-22}
           target="$DEPLOY_USER@$DEPLOY_HOST"
           remote_release="/home/ubuntu/gitops/releases/$RELEASE_TAG"
-          ssh_options=(-i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes -p "$DEPLOY_SSH_PORT")
+          ssh_options=(-i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -p "$DEPLOY_SSH_PORT")
           mkdir_command=$(printf 'mkdir -p %q' "$remote_release")
           ssh "${ssh_options[@]}" "$target" "$mkdir_command"
-          rsync -az --delete -e "ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes -p $DEPLOY_SSH_PORT" \
+          rsync -az --delete -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -p $DEPLOY_SSH_PORT" \
             release/ "$target:$remote_release/"
           remote_command=$(printf 'RELEASE_DIR=%q RELEASE_TAG=%q BUILD_ASSETS=%q SOURCE_REF=%q bash %q' \
             "$remote_release" "$RELEASE_TAG" "$BUILD_ASSETS" "$GITHUB_SHA" "$remote_release/deploy.sh")
