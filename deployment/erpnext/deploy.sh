@@ -77,26 +77,50 @@ clear_metadata_cache() {
 
 smoke_test() {
 	local compose_file=$1 environment_name=$2 endpoint ping_response desk_status
-	endpoint=$(docker compose --file "$compose_file" port frontend 8080)
-	[[ -n "$endpoint" ]] || fail "$environment_name frontend has no published port"
+	if ! endpoint=$(docker compose --file "$compose_file" port frontend 8080); then
+		echo "ERROR: Could not resolve $environment_name frontend port" >&2
+		return 1
+	fi
+	if [[ -z "$endpoint" ]]; then
+		echo "ERROR: $environment_name frontend has no published port" >&2
+		return 1
+	fi
 
-	ping_response=$(curl --fail --silent --show-error --max-time "$CURL_TIMEOUT" \
-		--header "Host: $SITE" "http://$endpoint/api/method/ping")
-	[[ "$ping_response" == *'"pong"'* ]] || fail "$environment_name ping did not return pong"
+	if ! ping_response=$(curl --fail --silent --show-error --max-time "$CURL_TIMEOUT" \
+		--header "Host: $SITE" "http://$endpoint/api/method/ping"); then
+		echo "ERROR: $environment_name ping request failed" >&2
+		return 1
+	fi
+	if [[ "$ping_response" != *'"pong"'* ]]; then
+		echo "ERROR: $environment_name ping did not return pong" >&2
+		return 1
+	fi
 
-	desk_status=$(curl --silent --show-error --max-time "$CURL_TIMEOUT" --output /dev/null \
-		--write-out '%{http_code}' --header "Host: $SITE" "http://$endpoint/desk")
+	if ! desk_status=$(curl --silent --show-error --max-time "$CURL_TIMEOUT" --output /dev/null \
+		--write-out '%{http_code}' --header "Host: $SITE" "http://$endpoint/desk"); then
+		echo "ERROR: $environment_name Desk request failed" >&2
+		return 1
+	fi
 	case "$desk_status" in
 	200|301|302) ;;
-	*) fail "$environment_name Desk check returned HTTP $desk_status" ;;
+	*)
+		echo "ERROR: $environment_name Desk check returned HTTP $desk_status" >&2
+		return 1
+		;;
 	esac
 
 	# Optional marker gives small UI-only releases a direct source-presence check.
 	if [[ -n "${SMOKE_MARKER:-}" ]]; then
-		: "${SMOKE_PATH:?Set SMOKE_PATH when using SMOKE_MARKER}"
-		docker compose --file "$compose_file" exec -T \
+		if [[ -z "${SMOKE_PATH:-}" ]]; then
+			echo "ERROR: Set SMOKE_PATH when using SMOKE_MARKER" >&2
+			return 1
+		fi
+		if ! docker compose --file "$compose_file" exec -T \
 			-e "SMOKE_MARKER=$SMOKE_MARKER" -e "SMOKE_PATH=$SMOKE_PATH" backend \
-			sh -lc 'grep -Fq -- "$SMOKE_MARKER" "$SMOKE_PATH"' </dev/null
+			sh -lc 'grep -Fq -- "$SMOKE_MARKER" "$SMOKE_PATH"' </dev/null; then
+			echo "ERROR: $environment_name smoke marker was not found" >&2
+			return 1
+		fi
 	fi
 
 	log "$environment_name smoke test passed (ping and Desk HTTP $desk_status)."

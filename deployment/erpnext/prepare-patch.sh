@@ -24,7 +24,7 @@ while IFS=$'\t' read -r status path extra; do
 			exit 1
 		}
 		mkdir -p "$OUTPUT_DIR/patch/$(dirname "$path")"
-		cp "$path" "$OUTPUT_DIR/patch/$path"
+		git show "$TARGET_REF:$path" > "$OUTPUT_DIR/patch/$path"
 		case "$path" in
 		frappe/public/*|esbuild/*|package.json|yarn.lock|hooks.py) build_assets=1 ;;
 		esac
